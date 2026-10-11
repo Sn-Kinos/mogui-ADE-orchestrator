@@ -38,14 +38,14 @@ INSTANCE_OWNED_EXACT = frozenset(
 )
 
 PLACEHOLDERS = (
-    "{{WORKSPACE_NAME}}",
-    "{{WORKSPACE_ROOT}}",
-    "{{OPS_REPO}}",
-    "{{MONITOR_NS}}",
-    "{{MODEL_ID}}",
-    "{{REPO_LIST}}",
-    "{{RUNTIME_ROOT}}",
-    "{{TEMPLATE_VERSION}}",
+    "{" "{WORKSPACE_NAME}}",
+    "{" "{WORKSPACE_ROOT}}",
+    "{" "{OPS_REPO}}",
+    "{" "{MONITOR_NS}}",
+    "{" "{MODEL_ID}}",
+    "{" "{REPO_LIST}}",
+    "{" "{RUNTIME_ROOT}}",
+    "{" "{TEMPLATE_VERSION}}",
 )
 
 
