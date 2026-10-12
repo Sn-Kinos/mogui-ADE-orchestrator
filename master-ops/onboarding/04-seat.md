@@ -34,10 +34,21 @@ $ ORCA terminal show --terminal <terminal handle> --json
 
 Capture the returned selector only when the terminal metadata proves the workspace-level seat: a folder workspace reports `worktreeId` as `folder:<uuid>` with an empty `worktreePath`, and that emptiness is the expected shape, so judge by `worktreeId`. Before continuing, persist a durable placement result in an ops-repository file containing the selector in `id:` prefixed form, `{{WORKSPACE_ROOT}}`, and the `terminal show` proof; do not rely on conversation state, and do not treat the temporary terminal's handle as durable, because handles are scoped to the app runtime and die with restarts. The durable identity is the selector. After persisting, ask the user to close the temporary seat-check terminal (or close it yourself if it is yours). The tracker step initializes the issue tracker independently and does not require a second placement copy; it may record a pointer to this result. Do not substitute a filesystem path for the measured selector, and do not infer the seat from a shell's cwd.
 
+### Worktree base outside the root
+
+Orca creates worker worktrees under its workspace directory (`workspaceDir`, default `~/orca/workspaces`). When that directory sits inside `{{WORKSPACE_ROOT}}`, every worker worktree is a descendant of the root and its agent loads the root session card as an ancestor `CLAUDE.md`/`AGENTS.md`: workers inherit the master's card. Read the directory in Orca Settings > General > Workspace directory and test it against the root. If it is inside, move the base outside the root for every registered repository workers branch from:
+
+```console
+$ ORCA project setup-update --setup <project id> --worktree-base-path <dir outside the root>
+```
+
+With `nestWorkspaces` on, Orca appends the repository name, so worktrees land in `<dir>/<repo>`; judge the effective path, not the flag value. This is per repository; the app-wide default changes only in that Settings field, so tell the owner instead of editing it for them.
+
 ## Verify
 
 - the full open-measure-close sequence was explained before any temporary terminal was requested
 - `orca repo add --path "{{OPS_REPO}}" --json` succeeds or confirms the ops repository is already registered (worker worktrees are created from this registration)
+- the effective worker worktree base of every registered repository is outside `{{WORKSPACE_ROOT}}`
 - `terminal show` measured the terminal metadata
 - the selector points at the workspace-level seat, never an individual repository product worktree
 - the durable placement result exists in `id:` prefixed selector form before founding spawn

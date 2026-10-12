@@ -30,6 +30,8 @@ Seating a master inside one repository's worktree in a multi-repository workspac
 
 Workers are the opposite: each worker gets its own repository worktree on its own branch, never the folder workspace and never a shared checkout.
 
+Keep those worker worktrees outside the workspace root. Orca creates them under its workspace directory (`workspaceDir`, default `~/orca/workspaces`); when that directory sits inside the root, each worker loads the root session card as an ancestor instruction file. Move the base per repository with `orca project setup-update --setup <id> --worktree-base-path <dir>` (with `nestWorkspaces` on, Orca appends the repository name); the app-wide default changes only in Orca Settings > General > Workspace directory.
+
 ## Selector Forms, Measured
 
 Placement commands (`orca terminal create --worktree`, `master-succeed spawn --workspace-selector`) take a selector. Verified behavior, measured 2026-08-03 on a live host:
