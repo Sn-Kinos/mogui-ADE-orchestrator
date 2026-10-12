@@ -10,6 +10,8 @@ import subprocess
 import threading
 from pathlib import Path
 
+import pytest
+
 import master_runtime.core.dispatch_gate as dispatch_gate
 import master_runtime.core.dispatch_timeline as dispatch_timeline
 from master_runtime.core.dispatch_gate import (
@@ -890,6 +892,35 @@ def test_r4_registers_verified_job_id(tmp_path: Path) -> None:
     assert _ledger_entries(tmp_path)[-1]["attempt"] == 2
 
 
+def test_register_job_with_contract_sha_refuses_when_ticket_consumed(
+    tmp_path: Path,
+) -> None:
+    """The ticket for this contract was already consumed by the first,
+    sha-less register_job call; its unlink only runs when a contract sha was
+    given (dispatch_gate.py), so the ticket file itself stays on disk. A
+    second call naming that ticket's contract sha must refuse, not crash:
+    the contract-sha-and-ticket branch of _registration_candidate built
+    `matching_pending` with no emptiness guard, unlike its two sibling
+    branches, and indexing it raised IndexError.
+    """
+
+    contract = _contract(tmp_path, "second registration with ticket consumed")
+    gate = _gate(tmp_path, now=1_000)
+    gate.check(DispatchRequest("codex", contract, est_input_chars=10_000, n_agents=1))
+
+    first = gate.register_job("job-first", lambda job_id: job_id == "job-first")
+    assert first.allow is True
+
+    second = gate.register_job(
+        "job-second",
+        lambda job_id: job_id == "job-second",
+        contract_sha=_sha256(contract),
+    )
+
+    assert second.allow is False
+    assert second.reason == ReasonCode.NO_MATCHING_TICKET
+
+
 def test_register_job_round_trips_worker_pid_and_pane_through_the_ledger(
     tmp_path: Path,
 ) -> None:
@@ -1684,6 +1715,52 @@ def test_cli_check_missing_contract_without_estimate_returns_gate_denial(
     assert '"reason":"CONTRACT_UNREADABLE"' in output.out
     assert "Traceback" not in output.err
     assert json.loads(ledger.read_text(encoding="utf-8"))["est_chars"] is None
+
+
+def test_cli_ledger_after_subcommand_is_rejected_and_writes_nothing(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    """--ledger is declared only on the top-level parser, never on a
+    subparser (scripts/dispatch-gate). Giving it after the subcommand must
+    keep exiting 2 on argparse's own unrecognized-arguments refusal and
+    write no file in the cwd; a future change that moves --ledger onto the
+    subparsers, or that switches to parse_known_args, would instead accept
+    it and write a cwd-relative ledger that worker-wait never reads.
+    """
+
+    contract = _contract(tmp_path, "ledger after subcommand")
+    ledger = tmp_path / "ledger.jsonl"
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
+    script = runpy.run_path(str(_script()), run_name="dispatch_gate_test")
+
+    with pytest.raises(SystemExit) as excinfo:
+        script["main"](
+            [
+                "check",
+                "--runtime",
+                "codex",
+                "--model",
+                "gpt-5.6-luna",
+                "--contract",
+                str(contract),
+                "--agents",
+                "1",
+                "--est-chars",
+                "1000",
+                "--completion-channel",
+                "sentinel-log",
+                "--ledger",
+                str(ledger),
+            ]
+        )
+
+    assert excinfo.value.code == 2
+    assert "unrecognized arguments" in capsys.readouterr().err
+    assert list(cwd.iterdir()) == []
 
 
 def test_register_consumes_matching_pending_dispatch_by_contract_sha(
