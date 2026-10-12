@@ -60,6 +60,8 @@ Require the gate `check` to return `allow: true` before spawning or attaching th
 
 Require placement verification `MATCH` or `MATCH_REISSUED`; the latter must include `handle_reissued: true` and its adopted live handle.
 
+`master-succeed spawn` launches `claude` with `--dangerously-skip-permissions`. Tell the owner before spawning: the new terminal shows a folder-trust prompt they answer once, and after that the master runs without per-tool permission prompts. The hooks wired in step 7 still run on every call.
+
 ### Verify (Step 8)
 
 - the seat was measured empty before spawning (no pre-existing terminal in the selector's seat)
