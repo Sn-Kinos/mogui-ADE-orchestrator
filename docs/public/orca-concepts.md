@@ -56,6 +56,10 @@ Two rules fall out:
 
 **"Not a valid worktree folder"** (or similar) on the plain workspace root is also expected. The workspace root is intentionally a plain folder that groups member repositories as siblings. It is not a git repository and must never become a submodule parent: parent-pins-child-SHA coupling is the opposite of an overseeing master, and the version management is misery. Orca still registers that folder as a project and seats the master in its folder workspace; the warning names "this folder is not a git worktree," not "this install is broken."
 
+## The Root Session Card And Product Checkouts
+
+The master's session card is deployed to the workspace root as both `CLAUDE.md` and `AGENTS.md`. Claude Code loads both names from every ancestor directory, so any session opened inside a product checkout under the root loads the master's card too. `claudeMdExcludes` cannot fix this from user settings because it has no cwd condition and would hide the card from the master as well. The measured fix is per checkout: `<repo>/.claude/settings.local.json` with `claudeMdExcludes` listing the two root files. The master's root session still loads the card.
+
 ## Workspace Descriptor (No Submodules)
 
 The declarative inventory of those sibling repositories lives in the instance file `config/workspace-descriptor.json` (template example only: `config/workspace-descriptor.example.json`). Onboarding writes it from the measured repository list: each entry carries `name`, workspace-root-relative `path`, canonical `remote`, `role` (`product` or `ops`), `capabilities`, and `prohibited` actions. Workspace-level fields record `workspace_root_is_plain_folder: true` and `master_seat`. Consumers such as worker routing and `scripts/workspace-descriptor-check` read `prohibited` from that file (environment override → file → unconfigured) instead of a hardcoded product-path list. Submodules are not a supported shape.
