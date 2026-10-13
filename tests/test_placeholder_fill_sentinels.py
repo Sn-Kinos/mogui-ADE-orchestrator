@@ -7,6 +7,7 @@ call because the real runtime root now matches its own "unsubstituted" test).
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -69,5 +70,7 @@ def test_filled_product_path_guard_passes_benign_call(tmp_path: Path):
     result = subprocess.run(
         ["bash", str(ops / "scripts/hooks/product-path-guard.sh")],
         input=payload, capture_output=True, text=True, cwd=tmp_path,
+        env={**os.environ, "MOGUI_EVENT_LOG": str(tmp_path / "event-log.jsonl"),
+             "MOGUI_HOOK_FIRE_LOG": str(tmp_path / "hook-fire-log.jsonl")},
     )
     assert result.returncode == 0, result.stderr

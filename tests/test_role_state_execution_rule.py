@@ -12,7 +12,7 @@ def _inject(tmp_path: Path, role_state: str) -> str:
     rs.write_text(role_state)
     hook = tmp_path / "hook.sh"
     hook.write_text("\n".join(
-        f"RS={rs}" if line.startswith("RS=") else line for line in HOOK.read_text().splitlines()
+        f"RS='{rs}'" if line.startswith("RS=") else line for line in HOOK.read_text().splitlines()
     ))
     return subprocess.run(["bash", str(hook)], input="{}", capture_output=True, text=True,
                           env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path)}).stdout
