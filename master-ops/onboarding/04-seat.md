@@ -36,10 +36,10 @@ Capture the returned selector only when the terminal metadata proves the workspa
 
 ### Worktree base outside the root
 
-Orca creates worker worktrees under its workspace directory (`workspaceDir`, default `~/orca/workspaces`). When that directory sits inside `{{WORKSPACE_ROOT}}`, every worker worktree is a descendant of the root and its agent loads the root session card as an ancestor instruction file: workers inherit the master's card. Read the directory in Orca Settings > General > Workspace directory and test it against the root. If it is inside, move the base outside the root for every registered repository workers branch from:
+Orca creates worker worktrees under its workspace directory (`workspaceDir`, default `~/orca/workspaces`). When that directory sits inside `{{WORKSPACE_ROOT}}`, every worker worktree is a descendant of the root and its agent loads the root session card as an ancestor instruction file: workers inherit the master's card. Read the directory in Orca Settings > General > Workspace directory and test it against the root. If it is inside, move the base outside the root for every registered repository workers branch from, using the setup id from `ORCA project setups --json`:
 
 ```console
-$ ORCA project setup-update --setup <project id> --worktree-base-path <dir outside the root>
+$ ORCA project setup-update --setup <setup id> --worktree-base-path <dir outside the root>
 ```
 
 With `nestWorkspaces` on, Orca appends the repository name, so worktrees land in `<dir>/<repo>`; judge the effective path, not the flag value. This is per repository; the app-wide default changes only in that Settings field, so tell the owner instead of editing it for them.
