@@ -70,7 +70,8 @@ def test_filled_product_path_guard_passes_benign_call(tmp_path: Path):
     result = subprocess.run(
         ["bash", str(ops / "scripts/hooks/product-path-guard.sh")],
         input=payload, capture_output=True, text=True, cwd=tmp_path,
-        env={**os.environ, "MOGUI_EVENT_LOG": str(tmp_path / "event-log.jsonl"),
+        env={**{k: v for k, v in os.environ.items() if k != "MOGUI_INSTANCE_RUNTIME_CONFIG"},
+             "MOGUI_EVENT_LOG": str(tmp_path / "event-log.jsonl"),
              "MOGUI_HOOK_FIRE_LOG": str(tmp_path / "hook-fire-log.jsonl")},
     )
     assert result.returncode == 0, result.stderr

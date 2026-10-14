@@ -59,7 +59,7 @@ Two rules fall out:
 
 ## The Root Session Card And Product Checkouts
 
-The master's session card is deployed to the workspace root as both `CLAUDE.md` and `AGENTS.md`. Claude Code loads `CLAUDE.md` from every ancestor directory, and `AGENTS.md` too when Project instructions is set to read both, so any session opened inside a product checkout under the root loads the master's card too. `claudeMdExcludes` cannot fix this from user settings because it has no cwd condition and would hide the card from the master as well. The measured fix is per checkout: `<repo>/.claude/settings.local.json` with `claudeMdExcludes` listing the two root files by absolute path (git-ignore it; Claude Code only does that for files it writes itself). The master's root session still loads the card.
+The master's session card is deployed to the workspace root as both `CLAUDE.md` and `AGENTS.md`. Claude Code loads `CLAUDE.md` from every ancestor directory, and `AGENTS.md` too when Project instructions is set to read both, so any session opened inside a product checkout under the root loads the master's card too. `claudeMdExcludes` cannot fix this from user settings because it has no cwd condition and would hide the card from the master as well. The measured fix is per checkout: `<repo>/.claude/settings.local.json` with `claudeMdExcludes` listing the two root files by absolute path (entries are globs, so escape `[`, `]`, `*`, `?` in the root path; git-ignore the file; Claude Code only does that for files it writes itself). The master's root session still loads the card.
 
 ## Workspace Descriptor (No Submodules)
 
