@@ -504,7 +504,7 @@ claude_pretrust_call_site_test() (
   local dispatch="$1" block mutant_block
 
   block=$(awk '
-    /^ensure_codex_pretrust "\$RUNTIME" "\$WORKTREE" \|\| exit 2$/{f=1}
+    /^[[:space:]]*ensure_codex_pretrust "\$RUNTIME" "\$WORKTREE" \|\| exit 2$/{f=1}
     f{print}
     f && /orca terminal create --worktree "\$WORKTREE"/{exit}
   ' "$dispatch")
@@ -513,7 +513,7 @@ claude_pretrust_call_site_test() (
 
   check_ordering() {
     local text="$1" call_line term_line
-    call_line=$(printf '%s\n' "$text" | grep -n '^ensure_claude_pretrust "\$RUNTIME" "\$WORKTREE" || exit 2$' | cut -d: -f1 | head -1)
+    call_line=$(printf '%s\n' "$text" | grep -n '^[[:space:]]*ensure_claude_pretrust "\$RUNTIME" "\$WORKTREE" || exit 2$' | cut -d: -f1 | head -1)
     term_line=$(printf '%s\n' "$text" | grep -n 'orca terminal create --worktree "\$WORKTREE"' | cut -d: -f1 | head -1)
     [ -n "$call_line" ] || return 1
     [ -n "$term_line" ] || return 1
@@ -530,7 +530,7 @@ claude_pretrust_call_site_test() (
   # Failability: a copy of the block with the claude pre-trust line dropped
   # (the shape of the call being silently removed from the wrapper) must
   # fail the ordering check above.
-  mutant_block=$(printf '%s\n' "$block" | grep -v '^ensure_claude_pretrust "\$RUNTIME" "\$WORKTREE" || exit 2$')
+  mutant_block=$(printf '%s\n' "$block" | grep -v '^[[:space:]]*ensure_claude_pretrust "\$RUNTIME" "\$WORKTREE" || exit 2$')
   if [ "$mutant_block" = "$block" ]; then
     echo "FAIL: dropped-call mutant did not change the source" >&2
     return 1
@@ -542,6 +542,102 @@ claude_pretrust_call_site_test() (
   echo "ok   : failability: dropping the ensure_claude_pretrust call makes the ordering check fail"
 )
 claude_pretrust_call_site_test "$dispatch" || exit 1
+
+# --- Feature: a reused pane with no worktree skips pre-trust ----------------
+#
+# --terminal HANDLE reuses an existing pane and leaves WORKTREE empty. The
+# three pre-trust helpers refuse an empty worktree path and return 1, so
+# every claude/codex/cursor dispatch onto a reused pane used to exit 2 before
+# the recording gate even though a reused pane launches nothing to pre-trust.
+# Extracts the three ensure_*_pretrust functions plus the new guarded block
+# and runs them in an isolated subshell with fake pre-trust binaries that
+# exit 9 and print nothing, so an accidental call on the skip path fails loud
+# instead of silently passing.
+pretrust_pane_reuse_skip_test() (
+  set +e
+  set -u
+  local dispatch="$1" work fn_codex fn_cursor fn_claude guard script_file \
+    out status mutant_guard rt
+
+  fn_codex=$(awk '$0=="ensure_codex_pretrust() {"{f=1} f{print} f&&$0=="}"{exit}' "$dispatch")
+  fn_cursor=$(awk '$0=="ensure_cursor_pretrust() {"{f=1} f{print} f&&$0=="}"{exit}' "$dispatch")
+  fn_claude=$(awk '$0=="ensure_claude_pretrust() {"{f=1} f{print} f&&$0=="}"{exit}' "$dispatch")
+  guard=$(awk '
+    /^if \[ -n "\$TERMINAL" \] && \[ -z "\$WORKTREE" \]; then$/{f=1}
+    f{print}
+    f && /^fi$/{exit}
+  ' "$dispatch")
+
+  [ -n "$fn_codex" ] && [ -n "$fn_cursor" ] && [ -n "$fn_claude" ] \
+    || { echo "FAIL: could not extract the three ensure_*_pretrust functions" >&2; return 1; }
+  [ -n "$guard" ] || { echo "FAIL: could not extract the pane-reuse pre-trust guard block" >&2; return 1; }
+
+  work="${TMPDIR:-/tmp}/mogui-dispatch-pretrust-pane-reuse-test.$$"
+  mkdir -p "$work"
+  trap 'rm -rf "$work"' EXIT
+  cat > "$work/fake-pretrust" <<'BIN'
+#!/bin/bash
+exit 9
+BIN
+  chmod +x "$work/fake-pretrust"
+
+  write_script() {
+    local outfile="$1" guard_body="$2"
+    {
+      echo 'set -u'
+      printf 'PRETRUST_BIN=%s\n' "$work/fake-pretrust"
+      printf 'CURSOR_PRETRUST_BIN=%s\n' "$work/fake-pretrust"
+      printf 'CLAUDE_PRETRUST_BIN=%s\n' "$work/fake-pretrust"
+      printf '%s\n' "$fn_codex"
+      printf '%s\n' "$fn_cursor"
+      printf '%s\n' "$fn_claude"
+      printf '%s\n' "$guard_body"
+      echo 'echo SENTINEL'
+    } > "$outfile"
+  }
+
+  script_file="$work/run.sh"
+  write_script "$script_file" "$guard"
+
+  for rt in claude codex cursor; do
+    out=$(TERMINAL=term_x WORKTREE="" RUNTIME="$rt" bash "$script_file" 2>&1)
+    status=$?
+    if [ "$status" -ne 0 ] || ! printf '%s\n' "$out" | grep -q '^SENTINEL$' \
+        || ! printf '%s\n' "$out" | grep -Fq 'pre-trust · skipped · pane reused'; then
+      echo "FAIL: a reused pane with no worktree should skip pre-trust and still reach the sentinel for runtime=$rt" >&2
+      printf '%s\n' "$out" >&2
+      return 1
+    fi
+    echo "ok   : pane reuse with no worktree skips pre-trust and reaches the sentinel for runtime=$rt (status=0)"
+  done
+
+  out=$(TERMINAL="" WORKTREE="" RUNTIME=claude bash "$script_file" 2>&1)
+  status=$?
+  if [ "$status" -ne 2 ]; then
+    echo "FAIL: a fresh launch (no --terminal) with an empty worktree should still exit 2, the worktree path unchanged" >&2
+    printf '%s\n' "$out" >&2
+    return 1
+  fi
+  echo "ok   : a fresh launch with an empty worktree still exits 2, the worktree path unchanged"
+
+  # Failability: a mutant that replaces the skip condition with `false` must
+  # make the claude pane-reuse run exit 2 again, the same as before this fix.
+  mutant_guard=${guard/'[ -n "$TERMINAL" ] && [ -z "$WORKTREE" ]'/'false'}
+  if [ "$mutant_guard" = "$guard" ]; then
+    echo "FAIL: skip-condition mutant did not change the source" >&2
+    return 1
+  fi
+  write_script "$script_file" "$mutant_guard"
+  out=$(TERMINAL=term_x WORKTREE="" RUNTIME=claude bash "$script_file" 2>&1)
+  status=$?
+  if [ "$status" -ne 2 ]; then
+    echo "FAIL: failability: mutant replacing the skip condition with false should have made the claude pane-reuse run exit 2 again, but status=$status" >&2
+    printf '%s\n' "$out" >&2
+    return 1
+  fi
+  echo "ok   : failability: replacing the skip condition with false makes the claude pane-reuse run exit 2 again"
+)
+pretrust_pane_reuse_skip_test "$dispatch" || exit 1
 
 # --- Feature: claude folder-trust dialog classifies as hook-trust ----------
 #
@@ -1289,7 +1385,7 @@ codex_hooks_vet_wiring_test() (
   printf '%s\n' "$wiring_block" | grep -Fq '"$HOOKS_ANSWER_BIN"' || { echo "FAIL: extracted block does not call HOOKS_ANSWER_BIN" >&2; return 1; }
 
   work="${TMPDIR:-/tmp}/mogui-dispatch-hooks-wiring-test.$$"
-  mkdir -p "$work/fakehome-pass/.codex" "$work/fakehome-fail/.codex"
+  mkdir -p "$work/fakehome-pass/.codex" "$work/fakehome-fail/.codex" "$work/default-worktree"
   trap 'rm -rf "$work"' EXIT
 
   cat > "$work/fakehome-pass/.codex/hooks.json" <<'EOF'
@@ -1337,7 +1433,7 @@ BIN
 
   write_script() {  # outfile  home  wiring-text  [hooks-answer-bin]  [accounts-dir]  [worktree]
     local outfile="$1" home="$2" wiring_text="$3" hooks_answer_bin="${4:-$work/fake-hooks-answer}"
-    local accounts_dir="${5:-$work/no-accounts-dir}" worktree="${6:-}"
+    local accounts_dir="${5:-$work/no-accounts-dir}" worktree="${6:-path:$work/default-worktree}"
     {
       echo 'set -u'
       printf 'export FAKE_MARKER=%s\n' "$work/injected"
@@ -1594,6 +1690,89 @@ EOF
     return 1
   fi
   echo "ok   : failability: a codex_hooks_homes that never resolves WORKTREE answers the modal despite the failing repo-root hooks.json (status=$status)"
+
+  # codex_hooks_vet_homes itself, not the full wiring: a reused pane with no
+  # worktree cannot have its project hooks measured, so it must fail closed
+  # even though $HOME's own hooks.json passes.
+  local vet_homes_script empty_out empty_status wt_out wt_status
+  vet_homes_script="$work/vet-homes-empty.sh"
+  {
+    echo 'set -u'
+    printf '%s\n' "$accounts_fn"
+    printf '%s\n' "$homes_fn"
+    printf '%s\n' "$vet_fn"
+    printf '%s\n' "$vet_homes_fn"
+    printf 'HOME=%s\n' "$work/fakehome-pass"
+    printf 'CODEX_ACCOUNTS_DIR=%s\n' "$work/no-accounts-dir"
+    echo 'WORKTREE='
+    echo 'codex_hooks_vet_homes'
+    echo 'echo RC=$?'
+  } > "$vet_homes_script"
+  empty_out=$(bash "$vet_homes_script" 2>&1)
+  empty_status=$?
+  if [ "$empty_status" -ne 0 ] || ! printf '%s\n' "$empty_out" | grep -q '^RC=1$'; then
+    echo "FAIL: codex_hooks_vet_homes should return 1 when WORKTREE is empty" >&2
+    printf '%s\n' "$empty_out" >&2
+    return 1
+  fi
+  printf '%s\n' "$empty_out" | grep -Fq 'hooks-vet: worktree unknown on a reused pane, project hooks unmeasured; not answering the modal' \
+    || { echo "FAIL: empty-WORKTREE case did not print the unmeasured line" >&2; printf '%s\n' "$empty_out" >&2; return 1; }
+  echo "ok   : codex_hooks_vet_homes returns 1 and prints the unmeasured line when WORKTREE is empty"
+
+  mkdir -p "$work/fixture-worktree"
+  vet_homes_script="$work/vet-homes-worktree.sh"
+  {
+    echo 'set -u'
+    printf '%s\n' "$accounts_fn"
+    printf '%s\n' "$homes_fn"
+    printf '%s\n' "$vet_fn"
+    printf '%s\n' "$vet_homes_fn"
+    printf 'HOME=%s\n' "$work/fakehome-pass"
+    printf 'CODEX_ACCOUNTS_DIR=%s\n' "$work/no-accounts-dir"
+    printf 'WORKTREE=path:%s\n' "$work/fixture-worktree"
+    echo 'codex_hooks_vet_homes'
+    echo 'echo RC=$?'
+  } > "$vet_homes_script"
+  wt_out=$(bash "$vet_homes_script" 2>&1)
+  wt_status=$?
+  if [ "$wt_status" -ne 0 ] || ! printf '%s\n' "$wt_out" | grep -q '^RC=0$'; then
+    echo "FAIL: codex_hooks_vet_homes should still return 0 with a real worktree and only passing homes" >&2
+    printf '%s\n' "$wt_out" >&2
+    return 1
+  fi
+  echo "ok   : codex_hooks_vet_homes returns 0 with WORKTREE set and the same passing fixtures"
+
+  # failability: a mutant that removes the empty-worktree guard treats an
+  # empty WORKTREE the same as a real one and returns 0.
+  mutant_vet_homes_fn=${vet_homes_fn/'  if [ -z "${WORKTREE#path:}" ]; then
+    echo "hooks-vet: worktree unknown on a reused pane, project hooks unmeasured; not answering the modal"
+    return 1
+  fi
+'/''}
+  if [ "$mutant_vet_homes_fn" = "$vet_homes_fn" ]; then
+    echo "FAIL: empty-worktree-guard mutant did not change the source" >&2
+    return 1
+  fi
+  vet_homes_script="$work/vet-homes-mutant.sh"
+  {
+    echo 'set -u'
+    printf '%s\n' "$accounts_fn"
+    printf '%s\n' "$homes_fn"
+    printf '%s\n' "$vet_fn"
+    printf '%s\n' "$mutant_vet_homes_fn"
+    printf 'HOME=%s\n' "$work/fakehome-pass"
+    printf 'CODEX_ACCOUNTS_DIR=%s\n' "$work/no-accounts-dir"
+    echo 'WORKTREE='
+    echo 'codex_hooks_vet_homes'
+    echo 'echo RC=$?'
+  } > "$vet_homes_script"
+  empty_out=$(bash "$vet_homes_script" 2>&1)
+  if ! printf '%s\n' "$empty_out" | grep -q '^RC=0$'; then
+    echo "FAIL: failability: removing the empty-worktree guard should make the WORKTREE=\"\" run return 0, but it didn't" >&2
+    printf '%s\n' "$empty_out" >&2
+    return 1
+  fi
+  echo "ok   : failability: removing the empty-worktree guard makes the WORKTREE=\"\" run return 0"
 )
 codex_hooks_vet_wiring_test "$dispatch" || exit 1
 
