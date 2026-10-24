@@ -18,6 +18,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 MASTER_OPS = REPO_ROOT / "master-ops"
 sys.path.insert(0, str(MASTER_OPS / "scripts"))
 from template_common import PLACEHOLDERS  # noqa: E402
+from windows_exec_surface import skip_windows_exec_surface  # noqa: E402
 
 TOKEN = re.compile(r"\{\{[^}]+\}\}")
 
@@ -39,17 +40,17 @@ def _filled_ops(tmp_path: Path) -> tuple[Path, Path]:
         "RUNTIME_ROOT": str(runtime),
         "TEMPLATE_VERSION": "v0.0.0",
     }
-    for rel in json.loads((MASTER_OPS / "MANIFEST.json").read_text())["files"]:
+    for rel in json.loads((MASTER_OPS / "MANIFEST.json").read_text(encoding="utf-8"))["files"]:
         dest = ops / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(MASTER_OPS / rel, dest)
         try:
-            text = dest.read_text()
+            text = dest.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             continue
         for key in PLACEHOLDERS:
             text = text.replace(key, values[key[2:-2]])
-        dest.write_text(text)
+        dest.write_text(text, encoding="utf-8")
     return ops, runtime
 
 
@@ -59,11 +60,12 @@ def test_fill_leaves_no_placeholder_tokens(tmp_path: Path):
         f"{p.relative_to(ops)}: {m}"
         for p in ops.rglob("*")
         if p.is_file()
-        for m in TOKEN.findall(p.read_text(errors="ignore"))
+        for m in TOKEN.findall(p.read_text(encoding="utf-8", errors="ignore"))
     ]
     assert leftovers == []
 
 
+@skip_windows_exec_surface
 def test_filled_product_path_guard_passes_benign_call(tmp_path: Path):
     ops, _ = _filled_ops(tmp_path)
     payload = json.dumps({"tool_name": "Read", "tool_input": {"file_path": str(tmp_path / "elsewhere.txt")}})
